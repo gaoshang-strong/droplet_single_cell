@@ -12,3 +12,6 @@ data/
 
 # FastQC zip files
 *.zip
+
+# Round1 (superseded by round2)
+R1_parser/round1/

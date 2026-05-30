@@ -99,27 +99,46 @@ BC1 < 10 bp occurs when W1 is within 10 bp of the read start.
 
 ### 6.1 PY batch has low TAAGGCGA rate and highly diverse gap sequences
 
-- PB samples: 60–73% TAAGGCGA exact match.  
-- PY samples: 42–46% TAAGGCGA exact match — the remaining ~54% carry highly diverse 8-mer sequences.  
+- PB samples: 60–73% TAAGGCGA exact match.
+- PY samples: 42–46% TAAGGCGA exact match — the remaining ~54% carry highly diverse 8-mer sequences.
 - This confirms that **PY's common_fixed is NOT a fixed sequence**: either the region encodes a variable barcode, or a different library preparation was used.
 
-### 6.5 3PB is an outlier within the PB batch
+### 6.2 3PB is an outlier within the PB batch
 
 - 1PB and 2PB have TAAGGCGA rates of **73%** (HD=0: ~76%); 3PB is notably lower at **59.7%** (HD=0: 63.3%).
 - 3PB also has a higher gap_len≠8 rate (5.6%) and more large-gap anomalies than the other two PB samples.
 - This may reflect lower library quality for 3PB, consistent with it having the lowest pass rate in step 1 (95.2% vs ~99% for 1PB/2PB).
 
-### 6.2 ~4–9% of reads have gap_len ≠ 8
+### 6.3 ~4–9% of reads have gap_len ≠ 8
 
-- Most anomalies are gap_len=7 (−1 bp): likely a 1-bp deletion in the common_fixed region or a 1-bp shift in the Hamming-rescued capture position.
-- A small fraction of PY reads have very large gaps (cs_pos−w1_pos = 44, 56, 63…), indicating that the Hamming rescue identified a false-positive capture position far downstream.
+Two distinct causes with different implications:
 
-### 6.3 PY Hamming distance distribution is flat
+**(a) Majority of gap_len=7 reads (~99%): 1-bp deletion within common_fixed — cs_pos is correct**
 
-- For PB, Hamming distance to TAAGGCGA is bimodal: HD=0 dominates (~60%), then a near-flat tail.
-- For PY, HD=0 is ~42% and the distribution is nearly uniform across HD 1–8, consistent with random sequence rather than a single alternative fixed sequence.
+- gap_seq is a 1-bp deletion variant of TAAGGCGA (e.g. `AAGGCGA`, `TAAGCGA`, `TAGGCGA`).
+- The capture sequence is intact; Hamming rescue correctly identifies the capture start. **cs_pos is accurate; insert start is unaffected.**
+
+**(b) Minority of gap_len=7 reads (~0.3%): capture first nt deleted — cs_pos offset by 1 bp**
+
+- gap_seq = `TAAGGCG` (the final A of common_fixed is absent from the gap). Only **4,747 reads** in 3PB (0.011% of total).
+- Direct inspection of raw sequences confirms: common_fixed is intact (TAAGGCGA) but the capture's first C is deleted, so Hamming rescue anchors 1 bp early (at the final A of common_fixed). **cs_pos is reported as 35 instead of the correct 36.**
+- BC1/BC2/UMI extraction uses `w1:i` and is **completely unaffected**.
+- Downstream analyses that use cs_pos to locate the insert start would be off by 1 bp for these reads. The count is negligible (0.011%) and they can safely be discarded.
+
+**(c) PY large-gap anomalies (cs_pos−w1_pos = 44/56/63…)**
+
+- A small fraction of PY reads (0.3–1%) have gaps of 27–46 bp containing fragments of the capture sequence.
+- Cause: step4 Hamming rescue found a false-positive capture match far downstream, severely misplacing cs_pos. **These reads should be filtered out.**
 
 ### 6.4 BC1 truncation is rare
 
-- < 1% of reads have BC1 < 10 bp (W1 appears within 10 bp of the read start).  
-- These reads can be excluded from downstream cell barcode analysis without significant loss.
+- ~98% of reads have a full 10-bp BC1 across all samples.
+- ~1–2% have W1 within 10 bp of the read start, truncating BC1 (minimum length 0). Negligible impact; can be filtered.
+
+### 6.5 Recommended downstream filters
+
+| Filter | Purpose |
+|--------|---------|
+| `gap_len == 8` | Removes all reads with a suspect cs_pos (capture-first-nt deletions and large-gap false positives) |
+| `bc1_len == 10` | Removes truncated-BC1 reads |
+| Both combined | Retains ~93% of 3PB reads and ~88% of 3PY reads with highest structural confidence |

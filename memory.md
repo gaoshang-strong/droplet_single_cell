@@ -76,11 +76,30 @@ BC1 (1-10) | W1 (11-15) | BC2 (16-25) | UMI_2N (26-27) | common_fixed (28-35) | 
 
 ---
 
+## Step 6 — W1 exact hit filter
+
+- Input: step4 filtered reads; output: `*_W1_R1/R2.fq.gz` with `w1:i:{pos}` appended to R1 header
+- Pass rates: PB 96–98%, PY 92–94%
+- R1 read name format after step6: `... cs:i:{n} mt:Z:{exact|hamming} w1:i:{n}`
+
+## Step 7 — Barcode / UMI extraction
+
+Input: step6 `*_W1_R1.fq.gz`  
+Output: `*_bc_umi.tsv.gz` per sample (one row per read)
+
+Columns: `read_id, w1_pos, cs_pos, mt, bc1, bc1_len, bc2, umi, gap_len, gap_seq`
+
+0-based Python slice math (w1_pos is 1-based):
+- BC1: `seq[max(0, w1_pos-11) : w1_pos-1]`  (10 bp, may be shorter if w1_pos < 11)
+- BC2: `seq[w1_pos+4 : w1_pos+14]`           (10 bp)
+- UMI: `seq[w1_pos+14 : w1_pos+16]`          (2 bp)
+- gap: `seq[w1_pos+16 : cs_pos-1]`           (common_fixed region, normally 8 bp)
+
+Canonical check (w1_pos=11, cs_pos=36): gap = `TAAGGCGA` for PB ✓
+
 ## Next Step
 
-Barcode and UMI extraction from step4 filtered reads, using `cs:i` tag as reference:
-- BC1: pos 1–10 relative to read start
-- W1: pos 11–15 (TCGAG, can validate)
-- BC2: pos 16–25
-- UMI_2N: pos 26–27
-- capture start: `cs:i` value
+Analyze step7 TSV output:
+- gap_len distribution (expect 8bp dominant)
+- gap_seq exact/Hamming match to common_fixed (TAAGGCGA for PB; empirically derived for PY)
+- bc1_len distribution (flag truncated BC1 reads)

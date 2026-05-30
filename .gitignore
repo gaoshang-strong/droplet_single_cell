@@ -13,5 +13,5 @@ data/
 # FastQC zip files
 *.zip
 
-# Round1 (superseded by round2)
-R1_parser/round1/
+# Round1 large output files
+R1_parser/round1/step4_filter_reads_with_anchored_capture_seq/*_filtered_R*.fq.gz

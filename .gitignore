@@ -1,0 +1,14 @@
+# raw sequencing data
+data/
+*.fq.gz
+*.fastq.gz
+*.fq
+*.fastq
+
+# TSV result files (large)
+*_anchor_position_distribution.tsv
+*_anchor_position_distribution.sorted.tsv
+*_anchor_summary.tsv
+
+# FastQC zip files
+*.zip

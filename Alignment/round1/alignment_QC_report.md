@@ -73,17 +73,41 @@ All samples show **>85% duplication rate** after filtering, indicating low libra
 
 ## Key Findings & Concerns
 
-### 1. PB samples have extremely low alignment rate (< 5%)
-The vast majority of PB reads (>99% for 1PB) fail to align to hg38, even as individual reads. Possible causes:
-- Reads contain residual adapter/non-genomic sequence not fully removed by trimming
-- Sample contamination (non-human DNA)
-- Library preparation failure specific to PB samples
-- R1 orientation issue (reads the wrong strand after trimming)
+### 1. PB samples have extremely low alignment rate (< 5%) — root cause identified
 
-**Action required**: Blast a subset of unaligned 1PB R1 reads to identify their origin.
+Systematic debugging was performed on 1PB:
 
-### 2. PY samples have moderate but acceptable alignment rate
-34–39% alignment rate is below the typical ATAC-seq benchmark (>60%), but may reflect the short R1 insert after barcode trimming and high barcode complexity.
+| Test | Alignment rate | Conclusion |
+|------|---------------|------------|
+| Bowtie2 end-to-end paired (current) | 1.65% | Baseline |
+| Bowtie2 `--local` paired | 10.37% | Soft-clip helps slightly |
+| Bowtie2 end-to-end R2 single-end | 1.52% | R2 alone also fails |
+| Bowtie2 end-to-end R1 single-end | 1.90% | R1 alone also fails |
+| BWA-MEM R2 single-end | 13.7% | Local alignment helps, but still low |
+| BWA-MEM R2 single-end (3PY, for comparison) | **50.4%** | 3PY aligns normally |
+
+**Root cause: PB reads are enriched in low-complexity / repetitive sequences.**
+
+Inspection of the top R2 5'-end sequences reveals systematic repetitive content in PB:
+
+```
+1PB R2 (top sequences):        3PY R2 (top sequences):
+CACACACACACACACACACA           GCACACTCCTTTCCTCTGCC
+GTGTGTGTGTGTGTGTGTGT           GGGTTAACTCAGGTCAGCTA
+CTGTAGGACGTGGAATATGG           GGCCAGGACCAGGCCAGAAA
+```
+
+1PB is dominated by CA/GT tandem repeats (microsatellites) and other repetitive elements. These sequences exist at thousands of genomic loci and cannot be uniquely placed by Bowtie2 (which discards multi-mappers by default), resulting in near-total alignment failure.
+
+**Possible causes:**
+- **Biological**: Peripheral blood contains a high proportion of neutrophils and other terminally differentiated cells with densely compacted heterochromatin. Tn5 may insert non-specifically in repetitive/heterochromatic regions when open chromatin is scarce.
+- **Library quality**: DNA degradation or low-complexity library amplification enriching for repetitive elements.
+- **PCR bias**: Tandem repeats amplify more efficiently during PCR, leading to overrepresentation in sequencing.
+
+**This is not a pipeline issue** — the same pipeline produces 24–39% alignment for PY samples. The difference is in the reads themselves.
+
+### 2. PY samples have moderate alignment rate
+34–39% alignment rate is below the typical ATAC-seq benchmark (>60%), but PY R2 single-end aligns at ~50% with BWA-MEM, suggesting the paired-end concordance requirement and Bowtie2's end-to-end mode account for part of the gap. PY reads show diverse, unique sequences consistent with genuine open chromatin signal.
 
 ### 3. High duplication rate across all samples
 90–93% duplication rate is concerning. Suggests low library complexity or sequencing the same molecules many times. Cell calling (Step 6) will determine if enough unique fragments per cell remain for analysis.

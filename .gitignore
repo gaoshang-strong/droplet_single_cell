@@ -22,3 +22,4 @@ R1_parser/round3/*_metadata.csv.gz
 R1_parser/round3/filter_HD0/*_R*.fq.gz
 R1_parser/round3/filter_HD2/*_R*.fq.gz
 R1_parser/round3/filter_HD3/*_R*.fq.gz
+R1_parser/round3/barcode_stats/*_counts.tsv.gz

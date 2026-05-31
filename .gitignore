@@ -19,3 +19,6 @@ R1_parser/round1/step6_filter_reads_with_W1/*_W1_R*.fq.gz
 R1_parser/round1/step7_extract_barcode_UMI/*_bc_umi.tsv.gz
 R1_parser/round1/step8_further_filter_based_on_gap8/*_gap8_R*.fq.gz
 R1_parser/round3/*_metadata.csv.gz
+R1_parser/round3/filter_HD0/*_R*.fq.gz
+R1_parser/round3/filter_HD2/*_R*.fq.gz
+R1_parser/round3/filter_HD3/*_R*.fq.gz

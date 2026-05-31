@@ -84,6 +84,20 @@ SAMPLES = {
     },
 }
 
+# Derive R2 paths from R1 (same directory, _R1 → _R2)
+for _key in SAMPLES:
+    SAMPLES[_key]["R2"] = SAMPLES[_key]["R1"].replace("_R1.fq.gz", "_R2.fq.gz")
+
+# ── filter definitions ───────────────────────────────────────────────────────
+# Each entry: (folder_name, max_hamming_distance)
+# All filters also require W1_exact_hit=TRUE and gap_length=20.
+
+FILTERS = [
+    ("filter_HD0", 0),
+    ("filter_HD2", 2),
+    ("filter_HD3", 3),
+]
+
 # ── paths ────────────────────────────────────────────────────────────────────
 
 OUTPUT_DIR = "/ShangGaoAIProjects/ZhangJW/R1_parser/round3"

@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 
-from config import SAMPLES, OUTPUT_DIR
+from config import SAMPLES, OUTPUT_DIR, FILTERS
 
 SAMPLE_ORDER = ["1PB", "2PB", "3PB", "3PY", "6PY", "9PY"]
 KEY_BY_LABEL = {v["label"]: k for k, v in SAMPLES.items()}
@@ -331,6 +331,108 @@ def plot_filter_funnel(all_stats):
     save(fig, "filter_funnel.png")
 
 
+# ── filter comparison ────────────────────────────────────────────────────────
+
+def load_filter_summary() -> dict | None:
+    """Return {label: {folder: passed_count}} or None if file missing."""
+    path = os.path.join(OUTPUT_DIR, "filter_summary.tsv")
+    if not os.path.exists(path):
+        return None
+    data = {}
+    with open(path) as f:
+        header = f.readline().strip().split("\t")
+        folders = [h.replace("_passed", "") for h in header if h.endswith("_passed")]
+        for line in f:
+            parts = line.strip().split("\t")
+            label = parts[0]
+            total = int(parts[1])
+            data[label] = {"total": total}
+            for i, folder in enumerate(folders):
+                data[label][folder] = int(parts[2 + i * 2])
+    return data
+
+
+def plot_filter_comparison(filter_data: dict):
+    """Grouped bar: pass rates for the three filter tiers per sample."""
+    labels  = [l for l in SAMPLE_ORDER if l in filter_data]
+    n       = len(labels)
+    x       = np.arange(n)
+    folders = [f for f, _ in FILTERS]
+    colors  = ["#6A1B9A", "#1565C0", "#1B5E20"]
+    names   = ["HD=0 + W1 + gap=20", "HD≤2 + W1 + gap=20", "HD≤3 + W1 + gap=20"]
+    w       = 0.25
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    for i, (folder, color, name) in enumerate(zip(folders, colors, names)):
+        vals = [
+            filter_data[l][folder] / filter_data[l]["total"] * 100
+            for l in labels
+        ]
+        off  = (i - 1) * w
+        bars = ax.bar(x + off, vals, width=w, color=color, label=name)
+        for bar, v in zip(bars, vals):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
+                f"{v:.1f}%", ha="center", va="bottom",
+                fontsize=8, fontweight="bold", rotation=90,
+            )
+
+    ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=11)
+    ax.set_ylim(0, 115)
+    ax.set_ylabel("% of raw reads retained", fontsize=10)
+    ax.set_title("Retained reads by filter tier", fontsize=12, fontweight="bold")
+    ax.legend(fontsize=9)
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.0f%%"))
+    ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
+    plt.tight_layout()
+    save(fig, "filter_comparison.png")
+
+
+def plot_filter_incremental(filter_data: dict):
+    """Stacked bar: how many extra reads each relaxed tier adds over HD=0."""
+    labels  = [l for l in SAMPLE_ORDER if l in filter_data]
+    n       = len(labels)
+    x       = np.arange(n)
+    folders = [f for f, _ in FILTERS]     # HD0, HD2, HD3
+    colors  = ["#6A1B9A", "#1565C0", "#1B5E20"]
+    names   = ["HD=0", "+HD 1–2", "+HD 3"]
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    bottom  = np.zeros(n)
+
+    prev = np.array([filter_data[l][folders[0]] for l in labels], dtype=float)
+    base = np.array([filter_data[l]["total"]    for l in labels], dtype=float)
+
+    # tier 0: HD=0
+    vals = prev / base * 100
+    ax.bar(x, vals, color=colors[0], label=names[0], width=0.55)
+    bottom += vals
+
+    # tiers 1,2: incremental adds
+    for i in range(1, len(folders)):
+        curr  = np.array([filter_data[l][folders[i]] for l in labels], dtype=float)
+        delta = (curr - prev) / base * 100
+        ax.bar(x, delta, bottom=bottom, color=colors[i], label=names[i], width=0.55)
+        for j in range(n):
+            if delta[j] > 0.3:
+                ax.text(j, bottom[j] + delta[j] / 2, f"+{delta[j]:.1f}%",
+                        ha="center", va="center", fontsize=7.5,
+                        color="white", fontweight="bold")
+        bottom += delta
+        prev   = curr
+
+    ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=11)
+    ax.set_ylim(0, 108)
+    ax.set_ylabel("% of raw reads", fontsize=10)
+    ax.set_title("Incremental reads gained by relaxing Hamming threshold",
+                 fontsize=12, fontweight="bold")
+    ax.legend(fontsize=9)
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.0f%%"))
+    ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
+    plt.tight_layout()
+    save(fig, "filter_incremental.png")
+
+
 # ── markdown report ──────────────────────────────────────────────────────────
 
 def write_report(all_stats):
@@ -504,6 +606,89 @@ def write_report(all_stats):
             f" | **{s['n_hd0_w1_gap20']/t*100:.1f}%** ({s['n_hd0_w1_gap20']:,}) |"
         )
 
+    # ── section 7: filter comparison ────────────────────────────────────────
+    filter_data = load_filter_summary()
+    if filter_data:
+        folders = [f for f, _ in FILTERS]
+        max_hds = [m for _, m in FILTERS]
+        tier_names = [
+            f"HD≤{m} + W1 hit + gap=20" for m in max_hds
+        ]
+
+        md += [
+            "",
+            "---",
+            "",
+            "## 7. Filter Comparison",
+            "",
+            "Three filter tiers applied to raw reads. All tiers require W1 exact hit and gap=20.",
+            "The only variable is the maximum allowed Hamming distance for the capture sequence.",
+            "",
+            "![Filter comparison](filter_comparison.png)",
+            "",
+            "![Incremental gain](filter_incremental.png)",
+            "",
+            "### 7.1 Absolute pass counts and rates",
+            "",
+        ]
+
+        header_cols = " | ".join(f"{n}" for n in tier_names)
+        md.append(f"| Sample | Raw reads | {header_cols} |")
+        md.append("|--------|-----------|" + "---|" * len(folders))
+
+        for label in SAMPLE_ORDER:
+            if label not in filter_data:
+                continue
+            fd = filter_data[label]
+            t  = fd["total"]
+            cols = " | ".join(
+                f"**{fd[f]:,}** ({fd[f]/t*100:.1f}%)" for f in folders
+            )
+            md.append(f"| **{label}** | {t:,} | {cols} |")
+
+        md += [
+            "",
+            "### 7.2 Incremental reads gained by relaxing the Hamming threshold",
+            "",
+            "Reads added relative to the strictest filter (HD=0).",
+            "",
+        ]
+
+        md.append(
+            "| Sample | HD=0 baseline | +HD 1–2 (HD≤2 gain) | +HD 3 (HD≤3 gain) |"
+        )
+        md.append("|--------|--------------|---------------------|-------------------|")
+
+        for label in SAMPLE_ORDER:
+            if label not in filter_data:
+                continue
+            fd   = filter_data[label]
+            t    = fd["total"]
+            n0   = fd[folders[0]]
+            n2   = fd[folders[1]]
+            n3   = fd[folders[2]]
+            d12  = n2 - n0
+            d23  = n3 - n2
+            md.append(
+                f"| **{label}** | {n0:,} ({n0/t*100:.1f}%)"
+                f" | +{d12:,} (+{d12/t*100:.1f}%)"
+                f" | +{d23:,} (+{d23/t*100:.1f}%) |"
+            )
+
+        md += [
+            "",
+            "### 7.3 Observations",
+            "",
+            "- Relaxing from HD=0 to HD≤2 recovers an additional fraction of reads where "
+            "the capture sequence has 1–2 sequencing errors — likely true positive reads "
+            "with minor sequencing noise.",
+            "- Relaxing further to HD≤3 adds a smaller incremental gain; the trade-off is "
+            "accepting reads where 3 of 15 capture bases are incorrect (20% error rate), "
+            "which may include more false positives.",
+            "- PY samples consistently show lower pass rates across all tiers, "
+            "consistent with lower library quality observed throughout the pipeline.",
+        ]
+
     path = os.path.join(OUTPUT_DIR, "qc_report.md")
     with open(path, "w") as f:
         f.write("\n".join(md))
@@ -528,6 +713,13 @@ if __name__ == "__main__":
     plot_w1_start(all_stats)
     plot_gap(all_stats)
     plot_filter_funnel(all_stats)
+
+    filter_data = load_filter_summary()
+    if filter_data:
+        plot_filter_comparison(filter_data)
+        plot_filter_incremental(filter_data)
+    else:
+        print("filter_summary.tsv not found — skipping filter comparison plots")
 
     write_report(all_stats)
     print("Done.")

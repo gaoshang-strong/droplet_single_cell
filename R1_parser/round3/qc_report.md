@@ -108,3 +108,44 @@ Three progressively stricter filter tiers, each expressed as % of raw reads.
 | **3PY** | 78.0% (37,593,268) | 76.3% (36,780,253) | **72.4%** (34,922,692) |
 | **6PY** | 55.5% (9,312,332) | 53.7% (9,003,098) | **50.0%** (8,390,020) |
 | **9PY** | 57.6% (11,744,653) | 55.4% (11,303,736) | **52.8%** (10,766,742) |
+
+---
+
+## 7. Filter Comparison
+
+Three filter tiers applied to raw reads. All tiers require W1 exact hit and gap=20.
+The only variable is the maximum allowed Hamming distance for the capture sequence.
+
+![Filter comparison](filter_comparison.png)
+
+![Incremental gain](filter_incremental.png)
+
+### 7.1 Absolute pass counts and rates
+
+| Sample | Raw reads | HD≤0 + W1 hit + gap=20 | HD≤2 + W1 hit + gap=20 | HD≤3 + W1 hit + gap=20 |
+|--------|-----------|---|---|---|
+| **1PB** | 22,454,402 | **17,803,091** (79.3%) | **19,304,120** (86.0%) | **19,488,527** (86.8%) |
+| **2PB** | 28,951,354 | **24,168,807** (83.5%) | **26,498,256** (91.5%) | **26,612,886** (91.9%) |
+| **3PB** | 44,651,052 | **38,904,553** (87.1%) | **40,101,821** (89.8%) | **40,185,454** (90.0%) |
+| **3PY** | 48,203,211 | **34,922,692** (72.4%) | **37,682,637** (78.2%) | **38,232,403** (79.3%) |
+| **6PY** | 16,776,373 | **8,390,020** (50.0%) | **10,561,326** (63.0%) | **11,194,199** (66.7%) |
+| **9PY** | 20,392,336 | **10,766,742** (52.8%) | **12,862,720** (63.1%) | **13,752,627** (67.4%) |
+
+### 7.2 Incremental reads gained by relaxing the Hamming threshold
+
+Reads added relative to the strictest filter (HD=0).
+
+| Sample | HD=0 baseline | +HD 1–2 (HD≤2 gain) | +HD 3 (HD≤3 gain) |
+|--------|--------------|---------------------|-------------------|
+| **1PB** | 17,803,091 (79.3%) | +1,501,029 (+6.7%) | +184,407 (+0.8%) |
+| **2PB** | 24,168,807 (83.5%) | +2,329,449 (+8.0%) | +114,630 (+0.4%) |
+| **3PB** | 38,904,553 (87.1%) | +1,197,268 (+2.7%) | +83,633 (+0.2%) |
+| **3PY** | 34,922,692 (72.4%) | +2,759,945 (+5.7%) | +549,766 (+1.1%) |
+| **6PY** | 8,390,020 (50.0%) | +2,171,306 (+12.9%) | +632,873 (+3.8%) |
+| **9PY** | 10,766,742 (52.8%) | +2,095,978 (+10.3%) | +889,907 (+4.4%) |
+
+### 7.3 Observations
+
+- Relaxing from HD=0 to HD≤2 recovers an additional fraction of reads where the capture sequence has 1–2 sequencing errors — likely true positive reads with minor sequencing noise.
+- Relaxing further to HD≤3 adds a smaller incremental gain; the trade-off is accepting reads where 3 of 15 capture bases are incorrect (20% error rate), which may include more false positives.
+- PY samples consistently show lower pass rates across all tiers, consistent with lower library quality observed throughout the pipeline.

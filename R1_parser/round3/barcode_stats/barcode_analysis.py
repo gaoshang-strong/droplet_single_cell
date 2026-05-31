@@ -38,11 +38,26 @@ SAMPLE_ORDER = ["1PB", "2PB", "3PB", "3PY", "6PY", "9PY"]
 BC1_RE = re.compile(r'bc1:Z:([ACGTN]+)')
 BC2_RE = re.compile(r'bc2:Z:([ACGTN]+)')
 
+BC1_REF = "GATCGATCGA"
+BC2_REF = "CTAGCTAGCT"
+CB_REF  = BC1_REF + BC2_REF   # GATCGATCGACTAGCTAGCT
+
 C_PB = "#1565C0"
 C_PY = "#E65100"
 
 def sample_color(label):
     return C_PB if label.endswith("PB") else C_PY
+
+def hamming(a, b):
+    return sum(x != y for x, y in zip(a, b))
+
+def _hd_dist(counter, ref):
+    dist = {}
+    for seq, cnt in counter.items():
+        if len(seq) == len(ref):
+            hd = hamming(seq, ref)
+            dist[hd] = dist.get(hd, 0) + cnt
+    return [[hd, dist[hd]] for hd in sorted(dist)]
 
 
 # ── per-sample counting ───────────────────────────────────────────────────────
@@ -104,6 +119,12 @@ def count_barcodes(key: str) -> dict:
         "cb_median_reads":   int(np.median(cb_counts)) if cb_counts else 0,
         "cb_mean_reads":     float(np.mean(cb_counts))  if cb_counts else 0,
         "reads_in_top1k_cb": int(sum(cb_counts[:1000])),
+        "top20_BC1": bc1_cnt.most_common(20),
+        "top20_BC2": bc2_cnt.most_common(20),
+        "top20_CB":  cb_cnt.most_common(20),
+        "hd_dist_BC1": _hd_dist(bc1_cnt, BC1_REF),
+        "hd_dist_BC2": _hd_dist(bc2_cnt, BC2_REF),
+        "hd_dist_CB":  _hd_dist(cb_cnt,  CB_REF),
     }
 
     with open(cache, "w") as f:
@@ -194,6 +215,83 @@ def plot_reads_per_cb(all_stats):
     save(fig, "median_reads_per_CB.png")
 
 
+# ── hamming distance plots ────────────────────────────────────────────────────
+
+def plot_hd_per_sample(all_stats, btype, ref):
+    """2×3 grid: one subplot per sample, bar chart of HD distribution (% reads)."""
+    n     = len(all_stats)
+    ncols = 3
+    nrows = (n + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(13, 4.5 * nrows))
+    axes = np.array(axes).flatten()
+
+    for i, s in enumerate(all_stats):
+        label = s["label"]
+        pairs = s.get(f"hd_dist_{btype}", [])
+        total = sum(cnt for _, cnt in pairs)
+        ax    = axes[i]
+
+        if not pairs or total == 0:
+            ax.set_title(label)
+            ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                    transform=ax.transAxes)
+            continue
+
+        hd_arr  = np.array([p[0] for p in pairs])
+        fracs   = np.array([p[1] / total * 100 for p in pairs])
+        hd0_pct = dict(pairs).get(0, 0) / total * 100
+
+        ax.bar(hd_arr, fracs, color=sample_color(label), width=0.7, alpha=0.85)
+        ax.set_title(f"{label}   HD=0: {hd0_pct:.1f}%", fontsize=11)
+        ax.set_xlabel("Hamming distance to reference")
+        ax.set_ylabel("% of reads")
+        ax.set_xticks(hd_arr)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    for j in range(i + 1, len(axes)):
+        axes[j].set_visible(False)
+
+    fig.suptitle(f"{btype}  Hamming distance to reference  [ {ref} ]",
+                 fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    save(fig, f"hd_dist_{btype}.png")
+
+
+def plot_hd0_summary(all_stats):
+    """Grouped bar: % reads at HD=0 per sample for BC1 / BC2 / CB."""
+    labels = [s["label"] for s in all_stats]
+    x      = np.arange(len(labels))
+    width  = 0.25
+    colors = {"BC1": "#2196F3", "BC2": "#FF9800", "CB": "#4CAF50"}
+
+    fig, ax = plt.subplots(figsize=(11, 5))
+    for i, btype in enumerate(("BC1", "BC2", "CB")):
+        vals = []
+        for s in all_stats:
+            pairs = s.get(f"hd_dist_{btype}", [])
+            total = sum(cnt for _, cnt in pairs)
+            hd0   = dict(pairs).get(0, 0)
+            vals.append(hd0 / total * 100 if total else 0)
+        bars = ax.bar(x + (i - 1) * width, vals, width,
+                      label=btype, color=colors[btype], alpha=0.85)
+        for bar, v in zip(bars, vals):
+            ax.text(bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.4,
+                    f"{v:.1f}%", ha="center", va="bottom", fontsize=8)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=11)
+    ax.set_ylabel("% reads at HD = 0", fontsize=11)
+    ax.set_title("% reads exactly matching reference barcode  (HD = 0)",
+                 fontsize=12, fontweight="bold")
+    ax.legend(fontsize=10)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    plt.tight_layout()
+    save(fig, "hd0_summary.png")
+
+
 # ── markdown report ───────────────────────────────────────────────────────────
 
 def write_report(all_stats):
@@ -278,6 +376,97 @@ def write_report(all_stats):
         "will apply a count threshold to separate real cells.",
     ]
 
+    md += [
+        "",
+        "---",
+        "",
+        "## 6. Top 20 Barcodes per Sample",
+        "",
+    ]
+
+    for label in SAMPLE_ORDER:
+        if label not in by_label:
+            continue
+        s = by_label[label]
+        md.append(f"### {label}")
+        md.append("")
+
+        for btype in ("CB", "BC1", "BC2"):
+            top20 = s.get(f"top20_{btype}", [])
+            if not top20:
+                continue
+            md.append(f"**Top 20 {btype}**")
+            md.append("")
+            md.append(f"| Rank | Sequence | Count |")
+            md.append(f"|------|----------|-------|")
+            for rank, (seq, cnt) in enumerate(top20, 1):
+                md.append(f"| {rank} | `{seq}` | {cnt:,} |")
+            md.append("")
+
+    # ── Section 7: Hamming Distance Analysis ──────────────────────────────────
+    md += [
+        "---",
+        "",
+        "## 7. Hamming Distance to Reference (Control)",
+        "",
+        "All barcodes are expected to match the reference sequence (control experiment).",
+        "",
+        f"| Barcode | Reference |",
+        f"|---------|-----------|",
+        f"| BC1 | `{BC1_REF}` |",
+        f"| BC2 | `{BC2_REF}` |",
+        f"| CB  | `{CB_REF}` |",
+        "",
+        "### 7.1 HD = 0 Summary",
+        "",
+        "![HD=0 summary](hd0_summary.png)",
+        "",
+        "| Sample | BC1 HD=0 | BC1 HD=0 % | BC2 HD=0 | BC2 HD=0 % | CB HD=0 | CB HD=0 % |",
+        "|--------|----------|------------|----------|------------|---------|----------|",
+    ]
+
+    for label in SAMPLE_ORDER:
+        if label not in by_label:
+            continue
+        s   = by_label[label]
+        row = [f"**{label}**"]
+        for btype in ("BC1", "BC2", "CB"):
+            pairs = s.get(f"hd_dist_{btype}", [])
+            total = sum(cnt for _, cnt in pairs)
+            hd0   = dict(pairs).get(0, 0)
+            pct   = hd0 / total * 100 if total else 0
+            row  += [f"{hd0:,}", f"{pct:.2f}%"]
+        md.append("| " + " | ".join(row) + " |")
+
+    for btype, ref in (("BC1", BC1_REF), ("BC2", BC2_REF), ("CB", CB_REF)):
+        md += [
+            "",
+            f"### 7.{('BC1','BC2','CB').index(btype)+2}. {btype} HD Distribution  (ref: `{ref}`)",
+            "",
+            f"![{btype} HD dist](hd_dist_{btype}.png)",
+            "",
+        ]
+
+        # table header: HD | sample1 | sample2 | ...
+        present_labels = [l for l in SAMPLE_ORDER if l in by_label]
+        header = ["HD"] + present_labels
+        md.append("| " + " | ".join(header) + " |")
+        md.append("|" + "|".join(["---"] * len(header)) + "|")
+
+        max_hd = max(
+            (p[0] for l in present_labels for p in by_label[l].get(f"hd_dist_{btype}", [])),
+            default=0,
+        )
+        for hd in range(max_hd + 1):
+            row = [str(hd)]
+            for label in present_labels:
+                pairs = by_label[label].get(f"hd_dist_{btype}", [])
+                total = sum(cnt for _, cnt in pairs)
+                cnt   = dict(pairs).get(hd, 0)
+                pct   = cnt / total * 100 if total else 0
+                row.append(f"{cnt:,} ({pct:.1f}%)")
+            md.append("| " + " | ".join(row) + " |")
+
     path = os.path.join(STATS_DIR, "barcode_summary.md")
     with open(path, "w") as f:
         f.write("\n".join(md))
@@ -302,5 +491,8 @@ if __name__ == "__main__":
     plot_knee(all_stats)
     plot_unique_cb(all_stats)
     plot_reads_per_cb(all_stats)
+    plot_hd0_summary(all_stats)
+    for btype, ref in (("BC1", BC1_REF), ("BC2", BC2_REF), ("CB", CB_REF)):
+        plot_hd_per_sample(all_stats, btype, ref)
     write_report(all_stats)
     print("Done.")

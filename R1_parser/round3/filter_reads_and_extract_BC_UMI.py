@@ -72,15 +72,16 @@ def process_sample(key: str) -> dict:
         total += 1
 
         parts   = meta.decode().rstrip("\n").split(",")
-        cs_s    = int(parts[1])
         hd      = int(parts[3])
         hit     = parts[4] == "TRUE"
-        ws      = int(parts[5])
-        we      = int(parts[6])
         gap_raw = parts[7]
 
         if not hit or gap_raw == "NA" or int(gap_raw) != 20:
             continue
+
+        cs_s = int(parts[1])
+        ws   = int(parts[5])
+        we   = int(parts[6])
 
         # extract BC1, BC2, UMI from R1 sequence using W1 coordinates
         seq  = r1_block[1].decode().rstrip()

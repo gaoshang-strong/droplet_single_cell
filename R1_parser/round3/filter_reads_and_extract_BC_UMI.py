@@ -1,13 +1,24 @@
 """
-Filter raw R1/R2 reads using three Hamming-distance tiers.
+Filter raw R1/R2 reads using three Hamming-distance tiers and annotate
+R1 read names with scan results + extracted BC1, BC2, UMI.
 
-All three filters share the same criteria:
-  - W1_exact_hit == TRUE
-  - gap_length == 20
-  - hamming_distance <= max_hd  (0 / 2 / 3 depending on filter)
+All three filters require: W1_exact_hit=TRUE, gap_length=20,
+hamming_distance <= max_hd (0 / 2 / 3).
 
-One pass through the metadata CSV + raw R1 + raw R2 per sample;
-reads are written to all matching filter folders simultaneously.
+Coordinates derived from ws (W1 start, 1-based):
+  BC1 : seq[ws-11 : ws-1]   (10 bp before W1)
+  BC2 : seq[we   : we+10]   (10 bp after  W1, 0-based we = 1-based we)
+  UMI : seq[we+10: we+12]   (2 bp after BC2)
+
+Tags appended to R1 header (SAM-tag style):
+  cs:i  capture start (1-based)
+  hd:i  capture Hamming distance
+  w1s:i W1 start (1-based)
+  w1e:i W1 end   (1-based)
+  gap:i gap length
+  bc1:Z BC1 sequence
+  bc2:Z BC2 sequence
+  umi:Z UMI sequence
 
 Output structure:
   round3/
@@ -61,18 +72,39 @@ def process_sample(key: str) -> dict:
         total += 1
 
         parts   = meta.decode().rstrip("\n").split(",")
+        cs_s    = int(parts[1])
         hd      = int(parts[3])
         hit     = parts[4] == "TRUE"
+        ws      = int(parts[5])
+        we      = int(parts[6])
         gap_raw = parts[7]
 
         if not hit or gap_raw == "NA" or int(gap_raw) != 20:
             continue
 
+        # extract BC1, BC2, UMI from R1 sequence using W1 coordinates
+        seq  = r1_block[1].decode().rstrip()
+        bc1  = seq[ws - 11 : ws - 1]    # 10 bp before W1  (0-based: ws-11 to ws-2)
+        bc2  = seq[we      : we + 10]   # 10 bp after  W1  (0-based: we to we+9)
+        umi  = seq[we + 10 : we + 12]   # 2 bp after BC2
+
+        # annotate R1 header with scan results and extracted sequences
+        annotated_header = (
+            r1_block[0].rstrip(b"\n")
+            + (
+                f" cs:i:{cs_s} hd:i:{hd}"
+                f" w1s:i:{ws} w1e:i:{we} gap:i:{gap_raw}"
+                f" bc1:Z:{bc1} bc2:Z:{bc2} umi:Z:{umi}"
+            ).encode()
+            + b"\n"
+        )
+
         for i, (_, max_hd) in enumerate(FILTERS):
             if hd <= max_hd:
                 f1, f2 = out_handles[i]
-                for line in r1_block: f1.write(line)
-                for line in r2_block: f2.write(line)
+                f1.write(annotated_header)
+                for line in r1_block[1:]: f1.write(line)
+                for line in r2_block:     f2.write(line)
                 counts[i] += 1
 
     for f1, f2 in out_handles:

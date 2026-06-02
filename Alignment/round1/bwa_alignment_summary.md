@@ -60,3 +60,15 @@ step2_align/
 ├── 260430R-S-XY-6PY.sorted.bam  (.bai)
 └── 260430R-S-XY-9PY.sorted.bam  (.bai)
 ```
+
+---
+
+## Genome-wide Coverage (GRCm39)
+
+All samples re-aligned to GRCm39 (mouse genome). See `alignment_QC_report.md` for details on why mouse genome is used.
+
+**Parameters:** Bowtie2 end-to-end · 50 kb bins · log₁₀(reads + 1)
+
+![ATAC-seq Coverage Manhattan Plot](atac_coverage_manhattan.png)
+
+Coverage is broadly distributed across all autosomes and sex chromosomes. PB samples show higher absolute read depth than PY samples, consistent with their larger library sizes (19–40M pairs vs 10–37M pairs).
